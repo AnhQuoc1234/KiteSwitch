@@ -1,0 +1,117 @@
+from dataclasses import dataclass, field
+from typing import Optional
+import os
+
+
+@dataclass
+class Provider:
+    id: str
+    name: str
+    model: str
+    price_per_1k_tokens: float  # USD
+    base_url: str
+    api_key_env: Optional[str] = None   # env var holding the API key
+    supports_x402: bool = False         # flip True once X402 discovery is wired
+    extra: dict = field(default_factory=dict)
+
+    @property
+    def api_key(self) -> Optional[str]:
+        if self.api_key_env:
+            return os.getenv(self.api_key_env)
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Provider is usable if it needs no key, or the key env var is set."""
+        if self.api_key_env is None:
+            return True
+        return bool(self.api_key)
+
+
+# ---------------------------------------------------------------------------
+# Static registry — replace / extend with X402 discovery in a later phase
+# ---------------------------------------------------------------------------
+
+PROVIDER_REGISTRY: list[Provider] = [
+    Provider(
+        id="openai",
+        name="OpenAI",
+        model="gpt-4o-mini",
+        price_per_1k_tokens=0.00015,
+        base_url="https://api.openai.com/v1",
+        api_key_env="OPENAI_API_KEY",
+    ),
+    Provider(
+        id="anthropic",
+        name="Anthropic",
+        model="claude-haiku-4-5-20251001",
+        price_per_1k_tokens=0.00025,
+        base_url="https://api.anthropic.com/v1",
+        api_key_env="ANTHROPIC_API_KEY",
+    ),
+    Provider(
+        id="ollama",
+        name="Ollama (local)",
+        model="llama3.2",
+        price_per_1k_tokens=0.0,
+        base_url="http://localhost:11434/v1",
+        api_key_env=None,   # no key needed for local
+    ),
+]
+
+
+def get_available_providers() -> list[Provider]:
+    """Return only providers whose credentials are present."""
+    return [p for p in PROVIDER_REGISTRY if p.available]
+
+
+def get_provider(provider_id: str) -> Optional[Provider]:
+    for p in PROVIDER_REGISTRY:
+        if p.id == provider_id:
+            return p
+    return None
+
+
+def score_providers(providers: list[Provider]) -> list[Provider]:
+    """Sort providers cheapest-first (cost-only scoring)."""
+    return sorted(providers, key=lambda p: p.price_per_1k_tokens)
+
+
+def pay_provider(provider: Provider, amount_usd: float) -> dict:
+    """Simulate the X402 payment handshake. Swap for real Kite L1 settlement later."""
+    from uuid import uuid4
+    return {
+        "status": "paid",
+        "tx_hash": f"mock_tx_{uuid4().hex[:8]}",
+        "amount_usd": round(amount_usd, 8),
+        "provider": provider.id,
+        "settled_on": "kite-testnet",
+    }
+
+
+def invoke_provider(provider: Provider, prompt: str) -> tuple[str, int]:
+    """Call the provider's LLM and return (response_text, tokens_used)."""
+    if provider.id in ("openai", "ollama"):
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=provider.api_key or "ollama",
+            base_url=provider.base_url,
+        )
+        completion = client.chat.completions.create(
+            model=provider.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return completion.choices[0].message.content, completion.usage.total_tokens
+
+    elif provider.id == "anthropic":
+        import anthropic
+        client = anthropic.Anthropic(api_key=provider.api_key)
+        message = client.messages.create(
+            model=provider.model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        tokens = message.usage.input_tokens + message.usage.output_tokens
+        return message.content[0].text, tokens
+
+    raise ValueError(f"Unknown provider: {provider.id}")
