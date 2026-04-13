@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KiteSwitch</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+    header .badge {
+      font-size: 11px;
+      font-weight: 500;
+      background: #f0f0f5;
+      color: #555;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      gap: 0;
+    }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 220px;
+      min-width: 220px;
+      background: #fff;
+      border-right: 1px solid #e0e0e0;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    aside h2 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+    }
+    .provider-list { display: flex; flex-direction: column; gap: 8px; }
+    .provider-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #e8e8e8;
+      background: #fafafa;
+    }
+    .provider-item.selected { border-color: #1d1d1f; background: #f0f0f5; }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot.ok  { background: #34c759; }
+    .dot.err { background: #ff3b30; }
+    .provider-info { flex: 1; min-width: 0; }
+    .provider-name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .provider-price { font-size: 11px; color: #888; margin-top: 1px; }
+    .provider-tag { font-size: 10px; color: #fff; background: #1d1d1f; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      padding: 28px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      max-width: 780px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e8e8e8;
+      font-size: 12px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card-body { padding: 16px; }
+
+    /* Prompt */
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      resize: vertical;
+      border: 1px solid #d0d0d0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      color: #1d1d1f;
+    }
+    textarea:focus { border-color: #1d1d1f; }
+
+    .prompt-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+    button {
+      padding: 8px 20px;
+      background: #1d1d1f;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.8; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Routing decision */
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 6px 0;
+    }
+    .meta-label { color: #888; font-size: 13px; }
+    .meta-value { font-size: 13px; font-weight: 500; }
+    .meta-value.mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; }
+    .meta-value .cheapest-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      background: #e8f5e9;
+      color: #2e7d32;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+    }
+
+    /* Response */
+    .response-text {
+      white-space: pre-wrap;
+      line-height: 1.65;
+      font-size: 14px;
+      color: #1d1d1f;
+    }
+
+    /* States */
+    .hidden { display: none !important; }
+    .loading-text { color: #888; font-size: 13px; }
+    .error-text { color: #ff3b30; font-size: 13px; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #ccc;
+      border-top-color: #1d1d1f;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>KiteSwitch</h1>
+  <span class="badge">X402 · Kite L1</span>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside>
+    <h2>Providers</h2>
+    <div class="provider-list" id="providerList">
+      <span class="loading-text">Loading…</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main>
+
+    <!-- Prompt card -->
+    <div class="card">
+      <div class="card-header">Prompt</div>
+      <div class="card-body">
+        <textarea id="promptInput" placeholder="Enter your task…"></textarea>
+        <div class="prompt-footer">
+          <button id="submitBtn" onclick="runInfer()">Route &amp; Infer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Routing decision card (hidden until result) -->
+    <div class="card hidden" id="routingCard">
+      <div class="card-header">Routing Decision</div>
+      <div class="card-body">
+        <div class="meta-grid">
+          <span class="meta-label">Provider</span>
+          <span class="meta-value" id="resProvider">—</span>
+
+          <span class="meta-label">Model</span>
+          <span class="meta-value" id="resModel">—</span>
+
+          <span class="meta-label">Tokens</span>
+          <span class="meta-value" id="resTokens">—</span>
+
+          <span class="meta-label">Cost</span>
+          <span class="meta-value" id="resCost">—</span>
+
+          <span class="meta-label">Tx hash</span>
+          <span class="meta-value mono" id="resTx">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Response card (hidden until result) -->
+    <div class="card hidden" id="responseCard">
+      <div class="card-header">Response</div>
+      <div class="card-body">
+        <div id="responseState" class="loading-text hidden">
+          <span class="spinner"></span> Routing and inferring…
+        </div>
+        <div id="responseError" class="error-text hidden"></div>
+        <div class="response-text" id="responseText"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  const API = 'http://localhost:8000';
+
+  // ── Load provider list ──────────────────────────────────────────────────
+  async function loadProviders() {
+    const list = document.getElementById('providerList');
+    try {
+      const res = await fetch(`${API}/providers`);
+      const providers = await res.json();
+      list.innerHTML = '';
+      providers.forEach(p => {
+        const price = p.price_per_1k_tokens === 0
+          ? 'Free'
+          : `$${p.price_per_1k_tokens.toFixed(5)}/1k`;
+        const item = document.createElement('div');
+        item.className = 'provider-item';
+        item.id = `provider-${p.id}`;
+        item.innerHTML = `
+          <span class="dot ${p.available ? 'ok' : 'err'}"></span>
+          <div class="provider-info">
+            <div class="provider-name">${p.name}</div>
+            <div class="provider-price">${p.model} · ${price}</div>
+          </div>
+        `;
+        list.appendChild(item);
+      });
+    } catch {
+      list.innerHTML = '<span class="error-text">Could not reach API</span>';
+    }
+  }
+
+  // ── Run inference ───────────────────────────────────────────────────────
+  async function runInfer() {
+    const prompt = document.getElementById('promptInput').value.trim();
+    if (!prompt) return;
+
+    const btn = document.getElementById('submitBtn');
+    const routingCard  = document.getElementById('routingCard');
+    const responseCard = document.getElementById('responseCard');
+    const responseState = document.getElementById('responseState');
+    const responseError = document.getElementById('responseError');
+    const responseText  = document.getElementById('responseText');
+
+    // Reset UI
+    btn.disabled = true;
+    routingCard.classList.add('hidden');
+    responseCard.classList.remove('hidden');
+    responseState.classList.remove('hidden');
+    responseError.classList.add('hidden');
+    responseText.textContent = '';
+
+    // Clear previous provider highlight
+    document.querySelectorAll('.provider-item').forEach(el => el.classList.remove('selected'));
+
+    try {
+      const res = await fetch(`${API}/infer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || 'Request failed');
+      }
+
+      const data = await res.json();
+
+      // Populate routing card
+      const cheapestBadge = '<span class="cheapest-badge">cheapest</span>';
+      document.getElementById('resProvider').innerHTML = data.provider + cheapestBadge;
+      document.getElementById('resModel').textContent    = data.model;
+      document.getElementById('resTokens').textContent   = data.tokens_used.toLocaleString();
+      document.getElementById('resCost').textContent     = `$${data.cost_usd.toFixed(8)}`;
+      document.getElementById('resTx').textContent       = data.tx_hash;
+
+      routingCard.classList.remove('hidden');
+
+      // Highlight selected provider in sidebar
+      const pItem = document.getElementById(`provider-${data.provider}`);
+      if (pItem) pItem.classList.add('selected');
+
+      // Show response
+      responseState.classList.add('hidden');
+      responseText.textContent = data.response;
+
+    } catch (err) {
+      responseState.classList.add('hidden');
+      responseError.classList.remove('hidden');
+      responseError.textContent = `Error: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Submit on Ctrl+Enter / Cmd+Enter
+  document.getElementById('promptInput').addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runInfer();
+  });
+
+  loadProviders();
+</script>
+</body>
+</html>

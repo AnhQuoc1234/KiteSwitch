@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 import os
+import re
 
 
 @dataclass
@@ -12,6 +13,7 @@ class Provider:
     base_url: str
     api_key_env: Optional[str] = None   # env var holding the API key
     supports_x402: bool = False         # flip True once X402 discovery is wired
+    quality_score: float = 1.0          # relative quality tier (higher = better)
     extra: dict = field(default_factory=dict)
 
     @property
@@ -40,6 +42,7 @@ PROVIDER_REGISTRY: list[Provider] = [
         price_per_1k_tokens=0.00015,
         base_url="https://api.openai.com/v1",
         api_key_env="OPENAI_API_KEY",
+        quality_score=1.5,
     ),
     Provider(
         id="anthropic",
@@ -48,6 +51,7 @@ PROVIDER_REGISTRY: list[Provider] = [
         price_per_1k_tokens=0.00025,
         base_url="https://api.anthropic.com/v1",
         api_key_env="ANTHROPIC_API_KEY",
+        quality_score=1.7,
     ),
     Provider(
         id="ollama",
@@ -56,9 +60,49 @@ PROVIDER_REGISTRY: list[Provider] = [
         price_per_1k_tokens=0.0,
         base_url="http://localhost:11434/v1",
         api_key_env=None,   # no key needed for local
+        quality_score=1.0,
     ),
 ]
 
+# ---------------------------------------------------------------------------
+# Task classification
+# ---------------------------------------------------------------------------
+
+CODE_KEYWORDS = re.compile(
+    r"\b(code|function|class|debug|implement|refactor|script|algorithm|"
+    r"python|javascript|typescript|sql|api|bug|error|exception|compile|"
+    r"test|unittest|async|regex|parse|json|xml|html|css)\b",
+    re.IGNORECASE,
+)
+
+COMPLEX_KEYWORDS = re.compile(
+    r"\b(explain|analyze|compare|summarize|research|design|architecture|"
+    r"strategy|plan|review|evaluate|elaborate|detailed|comprehensive)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_task(prompt: str) -> str:
+    """
+    Classify a prompt into one of three task types:
+      - "code"    → code generation / debugging / technical
+      - "complex" → long-form reasoning, analysis, explanation
+      - "simple"  → short / conversational / factual
+
+    Returns one of: "code", "complex", "simple"
+    """
+    words = len(prompt.split())
+
+    if CODE_KEYWORDS.search(prompt):
+        return "code"
+    if words > 80 or COMPLEX_KEYWORDS.search(prompt):
+        return "complex"
+    return "simple"
+
+
+# ---------------------------------------------------------------------------
+# Provider utilities
+# ---------------------------------------------------------------------------
 
 def get_available_providers() -> list[Provider]:
     """Return only providers whose credentials are present."""
@@ -72,8 +116,37 @@ def get_provider(provider_id: str) -> Optional[Provider]:
     return None
 
 
-def score_providers(providers: list[Provider]) -> list[Provider]:
-    """Sort providers cheapest-first (cost-only scoring)."""
+def score_providers(providers: list[Provider], task_type: str = "simple") -> list[Provider]:
+    """
+    Score and rank providers.
+
+    Scoring strategy by task type:
+      - "simple"  → cheapest wins (pure cost sort)
+      - "code"    → balance cost with quality (prefer capable models)
+      - "complex" → quality-first (best model within available set)
+
+    Returns providers sorted best-first.
+    """
+    if not providers:
+        return []
+
+    if task_type == "simple":
+        # Pure cost — cheapest first; free providers always win
+        return sorted(providers, key=lambda p: p.price_per_1k_tokens)
+
+    if task_type == "code":
+        # Weighted: 60% quality, 40% inverse cost
+        max_cost = max(p.price_per_1k_tokens for p in providers) or 1e-9
+        def code_score(p: Provider) -> float:
+            cost_norm = p.price_per_1k_tokens / max_cost
+            return -(0.6 * p.quality_score - 0.4 * cost_norm)
+        return sorted(providers, key=code_score)
+
+    if task_type == "complex":
+        # Quality-first; break ties by cost
+        return sorted(providers, key=lambda p: (-p.quality_score, p.price_per_1k_tokens))
+
+    # Fallback: cheapest
     return sorted(providers, key=lambda p: p.price_per_1k_tokens)
 
 

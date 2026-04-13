@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -8,6 +9,13 @@ from graph import routing_graph
 from kite_utils import get_available_providers, PROVIDER_REGISTRY
 
 app = FastAPI(title="KiteSwitch", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class InferRequest(BaseModel):
