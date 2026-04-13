@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph, START, END
 from kite_utils import (
     Provider,
     get_available_providers,
+    classify_task,
     score_providers,
     pay_provider,
     invoke_provider,
@@ -12,6 +13,7 @@ from kite_utils import (
 
 class GraphState(TypedDict):
     task: str
+    task_type: Optional[str]
     providers: list[Provider]
     selected_provider: Optional[Provider]
     payment_receipt: Optional[dict]
@@ -24,18 +26,16 @@ class GraphState(TypedDict):
 # Nodes
 # ---------------------------------------------------------------------------
 
-def classify_task(state: GraphState) -> GraphState:
-    """
-    Placeholder for task classification.
-    In the cost-only phase this is a passthrough.
-    Future: detect complexity, code vs. chat, etc.
-    """
-    return {**state, "providers": get_available_providers()}
+def classify_task_node(state: GraphState) -> GraphState:
+    """Classify the task to guide provider selection."""
+    task_type = classify_task(state["task"])
+    return {**state, "task_type": task_type, "providers": get_available_providers()}
 
 
 def score_providers_node(state: GraphState) -> GraphState:
-    """Sort available providers cheapest-first and pick the best one."""
-    ranked = score_providers(state["providers"])
+    """Rank available providers based on task type and pick the best one."""
+    task_type = state.get("task_type", "simple")
+    ranked = score_providers(state["providers"], task_type)
     if not ranked:
         raise RuntimeError("No available providers — check your API keys.")
     return {**state, "providers": ranked, "selected_provider": ranked[0]}
@@ -44,7 +44,7 @@ def score_providers_node(state: GraphState) -> GraphState:
 def pay_provider_node(state: GraphState) -> GraphState:
     """Simulate X402 payment for the selected provider."""
     provider = state["selected_provider"]
-    # Estimate cost for ~500 tokens (unknown at pay-time; settle actual after inference)
+    # Estimate cost for ~500 tokens (settle actual cost after inference)
     estimated_cost = provider.price_per_1k_tokens * 0.5
     receipt = pay_provider(provider, estimated_cost)
     return {**state, "payment_receipt": receipt}
@@ -70,7 +70,7 @@ def call_provider_node(state: GraphState) -> GraphState:
 def build_graph() -> StateGraph:
     g = StateGraph(GraphState)
 
-    g.add_node("classify_task", classify_task)
+    g.add_node("classify_task", classify_task_node)
     g.add_node("score_providers", score_providers_node)
     g.add_node("pay_provider", pay_provider_node)
     g.add_node("call_provider", call_provider_node)
