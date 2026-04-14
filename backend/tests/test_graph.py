@@ -114,12 +114,12 @@ class TestPayProviderNode:
 # ---------------------------------------------------------------------------
 
 class TestCallProviderNode:
-    def _state_with_provider(self, provider_id="openai"):
-        p = fake_provider(id=provider_id, price_per_1k_tokens=0.001)
-        return base_state(task="Say hello", selected_provider=p)
+    def _state_with_providers(self, *provider_ids):
+        providers = [fake_provider(id=pid, price_per_1k_tokens=0.001) for pid in provider_ids]
+        return base_state(task="Say hello", providers=providers, selected_provider=providers[0])
 
     def test_openai_provider_called(self):
-        state = self._state_with_provider("openai")
+        state = self._state_with_providers("openai")
         mock_completion = MagicMock()
         mock_completion.choices[0].message.content = "Hello!"
         mock_completion.usage.total_tokens = 20
@@ -133,7 +133,7 @@ class TestCallProviderNode:
         assert result["cost_usd"] == round(0.001 * 20 / 1000, 8)
 
     def test_anthropic_provider_called(self):
-        state = self._state_with_provider("anthropic")
+        state = self._state_with_providers("anthropic")
         mock_msg = MagicMock()
         mock_msg.content[0].text = "Hi there!"
         mock_msg.usage.input_tokens = 10
@@ -146,7 +146,33 @@ class TestCallProviderNode:
         assert result["response"] == "Hi there!"
         assert result["tokens_used"] == 25
 
-    def test_unknown_provider_raises(self):
-        state = self._state_with_provider("unknown_provider")
-        with pytest.raises(ValueError, match="Unknown provider"):
+    def test_all_providers_fail_raises_runtime_error(self):
+        state = self._state_with_providers("unknown_provider")
+        with pytest.raises(RuntimeError, match="All providers failed"):
             call_provider_node(state)
+
+    def test_fallback_to_second_provider(self):
+        """Primary provider fails → automatically uses second provider."""
+        primary = fake_provider(id="openai", price_per_1k_tokens=0.001)
+        fallback = fake_provider(id="ollama", price_per_1k_tokens=0.0)
+        state = base_state(task="Hello", providers=[primary, fallback], selected_provider=primary)
+
+        mock_completion = MagicMock()
+        mock_completion.choices[0].message.content = "Hi from fallback!"
+        mock_completion.usage.total_tokens = 10
+
+        call_count = {"n": 0}
+
+        def failing_then_ok(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ConnectionError("Primary down")
+            return mock_completion
+
+        with patch("openai.OpenAI") as MockClient:
+            MockClient.return_value.chat.completions.create.side_effect = failing_then_ok
+            result = call_provider_node(state)
+
+        assert result["response"] == "Hi from fallback!"
+        assert result["selected_provider"].id == "ollama"
+        assert call_count["n"] == 2

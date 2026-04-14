@@ -44,23 +44,37 @@ def score_providers_node(state: GraphState) -> GraphState:
 def pay_provider_node(state: GraphState) -> GraphState:
     """Simulate X402 payment for the selected provider."""
     provider = state["selected_provider"]
-    # Estimate cost for ~500 tokens (settle actual cost after inference)
     estimated_cost = provider.price_per_1k_tokens * 0.5
     receipt = pay_provider(provider, estimated_cost)
     return {**state, "payment_receipt": receipt}
 
 
 def call_provider_node(state: GraphState) -> GraphState:
-    """Run LLM inference and record actual token usage + cost."""
-    provider = state["selected_provider"]
-    response, tokens = invoke_provider(provider, state["task"])
-    actual_cost = provider.price_per_1k_tokens * (tokens / 1000)
-    return {
-        **state,
-        "response": response,
-        "tokens_used": tokens,
-        "cost_usd": round(actual_cost, 8),
-    }
+    """
+    Run LLM inference with automatic fallback.
+
+    Tries providers in ranked order. If the primary fails (rate limit,
+    network error, etc.) it transparently retries with the next best provider.
+    """
+    ranked_providers = state["providers"]
+    last_error: Exception = RuntimeError("No providers available.")
+
+    for provider in ranked_providers:
+        try:
+            response, tokens = invoke_provider(provider, state["task"])
+            actual_cost = provider.price_per_1k_tokens * (tokens / 1000)
+            return {
+                **state,
+                "selected_provider": provider,
+                "response": response,
+                "tokens_used": tokens,
+                "cost_usd": round(actual_cost, 8),
+            }
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise RuntimeError(f"All providers failed. Last error: {last_error}")
 
 
 # ---------------------------------------------------------------------------

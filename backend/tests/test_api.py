@@ -19,7 +19,10 @@ client = TestClient(app)
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    data = r.json()
+    assert data["status"] == "ok"
+    assert "x402_enabled" in data
+    assert "providers_available" in data
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +76,7 @@ def _mock_graph_result(provider_id="ollama", model="llama3.2"):
         "response": "Hello, world!",
         "tokens_used": 42,
         "cost_usd": 0.0,
+        "task_type": "simple",
     }
 
 
@@ -91,7 +95,7 @@ def test_infer_response_schema():
     with patch("main.routing_graph.invoke", return_value=_mock_graph_result()):
         r = client.post("/infer", json={"prompt": "test"})
     data = r.json()
-    for field in ("response", "provider", "model", "tokens_used", "cost_usd", "tx_hash"):
+    for field in ("response", "provider", "model", "tokens_used", "cost_usd", "tx_hash", "task_type"):
         assert field in data, f"Missing field: {field}"
 
 
@@ -129,3 +133,122 @@ def test_infer_routes_to_cheapest_for_simple_task():
         client.post("/infer", json={"prompt": "Hi"})
         call_args = mock_invoke.call_args[0][0]
         assert call_args["task"] == "Hi"
+
+
+# ---------------------------------------------------------------------------
+# /pay
+# ---------------------------------------------------------------------------
+
+def test_pay_returns_token():
+    r = client.post("/pay", json={"nonce": "abc123", "wallet_address": "0xDEADBEEF"})
+    assert r.status_code == 200
+    assert "payment_token" in r.json()
+    assert len(r.json()["payment_token"]) > 10
+
+
+def test_pay_missing_fields():
+    r = client.post("/pay", json={})
+    assert r.status_code == 422
+
+
+def test_pay_empty_nonce():
+    r = client.post("/pay", json={"nonce": "", "wallet_address": "0xDEAD"})
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# X402 flow
+# ---------------------------------------------------------------------------
+
+def test_x402_disabled_by_default_no_payment_needed():
+    """With X402 off (default), /infer works without a payment token."""
+    with patch("main.routing_graph.invoke", return_value=_mock_graph_result()):
+        r = client.post("/infer", json={"prompt": "hello"})
+    assert r.status_code == 200
+
+
+def test_x402_returns_402_when_enabled():
+    """With X402 on, /infer without a token should return 402."""
+    with patch.dict(os.environ, {"KITE_X402_ENABLED": "true"}):
+        with patch("main.x402_enabled", return_value=True):
+            r = client.post("/infer", json={"prompt": "hello"})
+    assert r.status_code == 402
+
+
+def test_x402_full_flow():
+    """Pay → get token → infer succeeds."""
+    with patch("main.x402_enabled", return_value=True):
+        # Step 1: hit /infer without token → 402 with challenge
+        r1 = client.post("/infer", json={"prompt": "hello"})
+        assert r1.status_code == 402
+        challenge = r1.json()["detail"]["challenge"]
+
+        # Step 2: pay with nonce
+        r2 = client.post("/pay", json={
+            "nonce": challenge["nonce"],
+            "wallet_address": "0xTEST",
+        })
+        assert r2.status_code == 200
+        token = r2.json()["payment_token"]
+
+        # Step 3: retry /infer with token
+        with patch("main.routing_graph.invoke", return_value=_mock_graph_result()):
+            r3 = client.post(
+                "/infer",
+                json={"prompt": "hello"},
+                headers={"X-Payment-Token": token},
+            )
+        assert r3.status_code == 200
+        assert r3.json()["response"] == "Hello, world!"
+
+
+def test_x402_token_single_use():
+    """A payment token can only be used once."""
+    with patch("main.x402_enabled", return_value=True):
+        r_pay = client.post("/pay", json={"nonce": "n1", "wallet_address": "0xA"})
+        token = r_pay.json()["payment_token"]
+
+        with patch("main.routing_graph.invoke", return_value=_mock_graph_result()):
+            r1 = client.post("/infer", json={"prompt": "hi"}, headers={"X-Payment-Token": token})
+        assert r1.status_code == 200
+
+        # Second use of the same token should fail
+        r2 = client.post("/infer", json={"prompt": "hi"}, headers={"X-Payment-Token": token})
+        assert r2.status_code == 402
+
+
+# ---------------------------------------------------------------------------
+# /infer/stream
+# ---------------------------------------------------------------------------
+
+async def _fake_stream(provider, prompt):
+    for chunk in ["Hello", ", ", "world", "!"]:
+        yield chunk
+
+
+def test_stream_endpoint_returns_sse():
+    with patch("main.stream_provider", side_effect=_fake_stream):
+        r = client.post("/infer/stream", json={"prompt": "hi"})
+    assert r.status_code == 200
+    assert "text/event-stream" in r.headers["content-type"]
+
+
+def test_stream_contains_meta_and_done():
+    with patch("main.stream_provider", side_effect=_fake_stream):
+        r = client.post("/infer/stream", json={"prompt": "hi"})
+    body = r.text
+    assert '"type": "meta"' in body
+    assert '"type": "done"' in body
+
+
+def test_stream_contains_chunks():
+    with patch("main.stream_provider", side_effect=_fake_stream):
+        r = client.post("/infer/stream", json={"prompt": "hi"})
+    body = r.text
+    assert '"type": "chunk"' in body
+    assert "Hello" in body
+
+
+def test_stream_empty_prompt_rejected():
+    r = client.post("/infer/stream", json={"prompt": ""})
+    assert r.status_code == 400
