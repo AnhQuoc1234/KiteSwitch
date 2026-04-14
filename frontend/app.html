@@ -36,6 +36,13 @@
       padding: 2px 8px;
       border-radius: 20px;
     }
+    header .badge.x402-on {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .header-spacer { flex: 1; }
+    .toggle-label { font-size: 12px; color: #888; display: flex; align-items: center; gap: 6px; }
+    .toggle-label input[type=checkbox] { cursor: pointer; }
 
     /* ── Layout ── */
     .layout {
@@ -83,7 +90,6 @@
     .provider-info { flex: 1; min-width: 0; }
     .provider-name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .provider-price { font-size: 11px; color: #888; margin-top: 1px; }
-    .provider-tag { font-size: 10px; color: #fff; background: #1d1d1f; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
 
     /* ── Main ── */
     main {
@@ -109,6 +115,9 @@
       color: #555;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .card-body { padding: 16px; }
 
@@ -130,10 +139,29 @@
 
     .prompt-footer {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
       margin-top: 10px;
     }
-    button {
+    .mode-toggle { display: flex; gap: 4px; }
+    .mode-btn {
+      padding: 5px 12px;
+      background: #f0f0f5;
+      color: #555;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mode-btn.active {
+      background: #1d1d1f;
+      color: #fff;
+      border-color: #1d1d1f;
+    }
+    button.submit-btn {
       padding: 8px 20px;
       background: #1d1d1f;
       color: #fff;
@@ -145,8 +173,8 @@
       cursor: pointer;
       transition: opacity 0.15s;
     }
-    button:hover { opacity: 0.8; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.submit-btn:hover { opacity: 0.8; }
+    button.submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* Routing decision */
     .meta-grid {
@@ -157,16 +185,16 @@
     .meta-label { color: #888; font-size: 13px; }
     .meta-value { font-size: 13px; font-weight: 500; }
     .meta-value.mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; }
-    .meta-value .cheapest-badge {
+    .badge-small {
       display: inline-block;
       font-size: 10px;
       font-weight: 600;
-      background: #e8f5e9;
-      color: #2e7d32;
       padding: 1px 6px;
       border-radius: 4px;
       margin-left: 6px;
     }
+    .badge-cheapest { background: #e8f5e9; color: #2e7d32; }
+    .badge-task-type { background: #e8eaf6; color: #3949ab; }
 
     /* Response */
     .response-text {
@@ -175,6 +203,32 @@
       font-size: 14px;
       color: #1d1d1f;
     }
+
+    /* X402 payment card */
+    .payment-card { border-color: #ffd600; }
+    .payment-card .card-header { background: #fffde7; border-bottom-color: #ffd600; color: #795548; }
+    .payment-info { display: flex; flex-direction: column; gap: 10px; }
+    .payment-amount {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1d1d1f;
+    }
+    .payment-amount span { font-size: 12px; font-weight: 400; color: #888; margin-left: 4px; }
+    .pay-btn {
+      padding: 10px 20px;
+      background: #f9a825;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      align-self: flex-start;
+    }
+    .pay-btn:hover { opacity: 0.85; }
+    .pay-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* States */
     .hidden { display: none !important; }
@@ -192,13 +246,27 @@
       margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Streaming cursor */
+    .cursor {
+      display: inline-block;
+      width: 2px; height: 1em;
+      background: #1d1d1f;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
   </style>
 </head>
 <body>
 
 <header>
   <h1>KiteSwitch</h1>
-  <span class="badge">X402 · Kite L1</span>
+  <span class="badge" id="x402Badge">X402 · Kite L1</span>
+  <div class="header-spacer"></div>
+  <label class="toggle-label">
+    <input type="checkbox" id="x402Toggle" onchange="toggleX402()"> Enable X402 payments
+  </label>
 </header>
 
 <div class="layout">
@@ -220,12 +288,39 @@
       <div class="card-body">
         <textarea id="promptInput" placeholder="Enter your task…"></textarea>
         <div class="prompt-footer">
-          <button id="submitBtn" onclick="runInfer()">Route &amp; Infer</button>
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="btnNormal" onclick="setMode('normal')">Normal</button>
+            <button class="mode-btn" id="btnStream" onclick="setMode('stream')">Stream</button>
+          </div>
+          <button class="submit-btn" id="submitBtn" onclick="run()">Route &amp; Infer</button>
         </div>
       </div>
     </div>
 
-    <!-- Routing decision card (hidden until result) -->
+    <!-- X402 Payment card (hidden until 402 received) -->
+    <div class="card payment-card hidden" id="paymentCard">
+      <div class="card-header">⚡ Payment Required (X402)</div>
+      <div class="card-body">
+        <div class="payment-info">
+          <div>
+            <div class="meta-label">Estimated cost</div>
+            <div class="payment-amount" id="payAmount">—<span>USD</span></div>
+          </div>
+          <div class="meta-grid">
+            <span class="meta-label">Provider</span>
+            <span class="meta-value" id="payProvider">—</span>
+            <span class="meta-label">Network</span>
+            <span class="meta-value">kite-testnet</span>
+            <span class="meta-label">Wallet</span>
+            <span class="meta-value mono" id="payWallet">—</span>
+          </div>
+          <button class="pay-btn" id="payBtn" onclick="completePayment()">Pay &amp; Continue</button>
+          <div id="payError" class="error-text hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Routing decision card -->
     <div class="card hidden" id="routingCard">
       <div class="card-header">Routing Decision</div>
       <div class="card-body">
@@ -235,6 +330,9 @@
 
           <span class="meta-label">Model</span>
           <span class="meta-value" id="resModel">—</span>
+
+          <span class="meta-label">Task type</span>
+          <span class="meta-value" id="resTaskType">—</span>
 
           <span class="meta-label">Tokens</span>
           <span class="meta-value" id="resTokens">—</span>
@@ -248,9 +346,12 @@
       </div>
     </div>
 
-    <!-- Response card (hidden until result) -->
+    <!-- Response card -->
     <div class="card hidden" id="responseCard">
-      <div class="card-header">Response</div>
+      <div class="card-header">
+        Response
+        <span id="streamBadge" class="badge hidden" style="font-size:10px;background:#e8eaf6;color:#3949ab;padding:1px 6px;border-radius:4px;">streaming</span>
+      </div>
       <div class="card-body">
         <div id="responseState" class="loading-text hidden">
           <span class="spinner"></span> Routing and inferring…
@@ -266,7 +367,27 @@
 <script>
   const API = 'http://localhost:8000';
 
-  // ── Load provider list ──────────────────────────────────────────────────
+  let currentMode = 'normal';    // 'normal' | 'stream'
+  let x402Active = false;        // mirrors the toggle
+  let pendingChallenge = null;   // stored 402 challenge waiting for payment
+  let pendingPrompt = null;      // prompt to retry after payment
+
+  // ── X402 toggle ──────────────────────────────────────────────────────────
+  function toggleX402() {
+    x402Active = document.getElementById('x402Toggle').checked;
+    const badge = document.getElementById('x402Badge');
+    badge.className = 'badge' + (x402Active ? ' x402-on' : '');
+    badge.textContent = x402Active ? 'X402 · ENABLED' : 'X402 · Kite L1';
+  }
+
+  // ── Mode toggle ──────────────────────────────────────────────────────────
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('btnNormal').className = 'mode-btn' + (mode === 'normal' ? ' active' : '');
+    document.getElementById('btnStream').className = 'mode-btn' + (mode === 'stream' ? ' active' : '');
+  }
+
+  // ── Provider list ────────────────────────────────────────────────────────
   async function loadProviders() {
     const list = document.getElementById('providerList');
     try {
@@ -274,9 +395,7 @@
       const providers = await res.json();
       list.innerHTML = '';
       providers.forEach(p => {
-        const price = p.price_per_1k_tokens === 0
-          ? 'Free'
-          : `$${p.price_per_1k_tokens.toFixed(5)}/1k`;
+        const price = p.price_per_1k_tokens === 0 ? 'Free' : `$${p.price_per_1k_tokens.toFixed(5)}/1k`;
         const item = document.createElement('div');
         item.className = 'provider-item';
         item.id = `provider-${p.id}`;
@@ -294,73 +413,218 @@
     }
   }
 
-  // ── Run inference ───────────────────────────────────────────────────────
-  async function runInfer() {
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function resetUI() {
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('routingCard').classList.add('hidden');
+    document.getElementById('paymentCard').classList.add('hidden');
+    document.getElementById('responseCard').classList.remove('hidden');
+    document.getElementById('responseState').classList.remove('hidden');
+    document.getElementById('responseError').classList.add('hidden');
+    document.getElementById('responseText').textContent = '';
+    document.getElementById('streamBadge').classList.add('hidden');
+    document.querySelectorAll('.provider-item').forEach(el => el.classList.remove('selected'));
+  }
+
+  function showRoutingMeta(data) {
+    document.getElementById('resProvider').innerHTML =
+      data.provider + '<span class="badge-small badge-cheapest">selected</span>';
+    document.getElementById('resModel').textContent = data.model;
+    document.getElementById('resTaskType').innerHTML =
+      `<span class="badge-small badge-task-type">${data.task_type || '—'}</span>`;
+    document.getElementById('resTokens').textContent =
+      data.tokens_used != null ? data.tokens_used.toLocaleString() : '—';
+    document.getElementById('resCost').textContent =
+      data.cost_usd != null ? `$${data.cost_usd.toFixed(8)}` : '—';
+    document.getElementById('resTx').textContent = data.tx_hash || '—';
+    document.getElementById('routingCard').classList.remove('hidden');
+
+    const pItem = document.getElementById(`provider-${data.provider}`);
+    if (pItem) pItem.classList.add('selected');
+  }
+
+  function showError(msg) {
+    document.getElementById('responseState').classList.add('hidden');
+    document.getElementById('responseError').classList.remove('hidden');
+    document.getElementById('responseError').textContent = `Error: ${msg}`;
+    document.getElementById('submitBtn').disabled = false;
+  }
+
+  // ── X402 payment handling ─────────────────────────────────────────────────
+  function showPaymentCard(challenge) {
+    pendingChallenge = challenge;
+    document.getElementById('payAmount').innerHTML =
+      `$${challenge.amount_usd.toFixed(8)}<span>USD · ${challenge.currency}</span>`;
+    document.getElementById('payProvider').textContent = challenge.provider;
+    document.getElementById('payWallet').textContent =
+      localStorage.getItem('kite_wallet') || 'Not configured';
+    document.getElementById('paymentCard').classList.remove('hidden');
+    document.getElementById('responseState').classList.add('hidden');
+    document.getElementById('submitBtn').disabled = false;
+  }
+
+  async function completePayment() {
+    if (!pendingChallenge) return;
+    const btn = document.getElementById('payBtn');
+    const errEl = document.getElementById('payError');
+    btn.disabled = true;
+    errEl.classList.add('hidden');
+
+    try {
+      const walletAddress = localStorage.getItem('kite_wallet') || '0xDEMO_WALLET';
+      const res = await fetch(`${API}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nonce: pendingChallenge.nonce, wallet_address: walletAddress }),
+      });
+      if (!res.ok) throw new Error('Payment failed');
+      const { payment_token } = await res.json();
+
+      document.getElementById('paymentCard').classList.add('hidden');
+      pendingChallenge = null;
+
+      // Retry original request with token
+      await run(payment_token);
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+    }
+  }
+
+  // ── Normal (non-streaming) inference ─────────────────────────────────────
+  async function runNormal(prompt, paymentToken) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (paymentToken) headers['X-Payment-Token'] = paymentToken;
+
+    const res = await fetch(`${API}/infer`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (res.status === 402) {
+      const body = await res.json();
+      showPaymentCard(body.detail.challenge);
+      return;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Request failed');
+    }
+
+    const data = await res.json();
+    showRoutingMeta(data);
+    document.getElementById('responseState').classList.add('hidden');
+    document.getElementById('responseText').textContent = data.response;
+    document.getElementById('submitBtn').disabled = false;
+  }
+
+  // ── Streaming inference ───────────────────────────────────────────────────
+  async function runStream(prompt, paymentToken) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (paymentToken) headers['X-Payment-Token'] = paymentToken;
+
+    const res = await fetch(`${API}/infer/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (res.status === 402) {
+      const body = await res.json();
+      showPaymentCard(body.detail.challenge);
+      return;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Request failed');
+    }
+
+    document.getElementById('streamBadge').classList.remove('hidden');
+    document.getElementById('responseState').classList.add('hidden');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const responseEl = document.getElementById('responseText');
+    let buffer = '';
+    let metaSet = false;
+
+    // Add blinking cursor while streaming
+    const cursor = document.createElement('span');
+    cursor.className = 'cursor';
+    responseEl.appendChild(cursor);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+
+        let event;
+        try { event = JSON.parse(raw); } catch { continue; }
+
+        if (event.type === 'meta' && !metaSet) {
+          metaSet = true;
+          showRoutingMeta({
+            provider: event.provider,
+            model: event.model,
+            task_type: event.task_type,
+            tokens_used: null,
+            cost_usd: null,
+            tx_hash: null,
+          });
+        } else if (event.type === 'chunk') {
+          responseEl.insertBefore(document.createTextNode(event.text), cursor);
+        } else if (event.type === 'done') {
+          cursor.remove();
+          document.getElementById('resCost').textContent = `$${event.cost_usd.toFixed(8)}`;
+          document.getElementById('resTx').textContent = event.tx_hash || '—';
+          document.getElementById('streamBadge').classList.add('hidden');
+          document.getElementById('submitBtn').disabled = false;
+        } else if (event.type === 'error') {
+          // Provider failed, fallback in progress — update provider badge
+          document.getElementById('resProvider').textContent =
+            `${event.provider} (failed, retrying…)`;
+        } else if (event.type === 'fatal') {
+          cursor.remove();
+          throw new Error(event.detail);
+        }
+      }
+    }
+    document.getElementById('submitBtn').disabled = false;
+  }
+
+  // ── Entry point ───────────────────────────────────────────────────────────
+  async function run(paymentToken) {
     const prompt = document.getElementById('promptInput').value.trim();
     if (!prompt) return;
 
-    const btn = document.getElementById('submitBtn');
-    const routingCard  = document.getElementById('routingCard');
-    const responseCard = document.getElementById('responseCard');
-    const responseState = document.getElementById('responseState');
-    const responseError = document.getElementById('responseError');
-    const responseText  = document.getElementById('responseText');
-
-    // Reset UI
-    btn.disabled = true;
-    routingCard.classList.add('hidden');
-    responseCard.classList.remove('hidden');
-    responseState.classList.remove('hidden');
-    responseError.classList.add('hidden');
-    responseText.textContent = '';
-
-    // Clear previous provider highlight
-    document.querySelectorAll('.provider-item').forEach(el => el.classList.remove('selected'));
+    resetUI();
 
     try {
-      const res = await fetch(`${API}/infer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || 'Request failed');
+      if (currentMode === 'stream') {
+        await runStream(prompt, paymentToken);
+      } else {
+        await runNormal(prompt, paymentToken);
       }
-
-      const data = await res.json();
-
-      // Populate routing card
-      const cheapestBadge = '<span class="cheapest-badge">cheapest</span>';
-      document.getElementById('resProvider').innerHTML = data.provider + cheapestBadge;
-      document.getElementById('resModel').textContent    = data.model;
-      document.getElementById('resTokens').textContent   = data.tokens_used.toLocaleString();
-      document.getElementById('resCost').textContent     = `$${data.cost_usd.toFixed(8)}`;
-      document.getElementById('resTx').textContent       = data.tx_hash;
-
-      routingCard.classList.remove('hidden');
-
-      // Highlight selected provider in sidebar
-      const pItem = document.getElementById(`provider-${data.provider}`);
-      if (pItem) pItem.classList.add('selected');
-
-      // Show response
-      responseState.classList.add('hidden');
-      responseText.textContent = data.response;
-
     } catch (err) {
-      responseState.classList.add('hidden');
-      responseError.classList.remove('hidden');
-      responseError.textContent = `Error: ${err.message}`;
-    } finally {
-      btn.disabled = false;
+      showError(err.message);
     }
   }
 
   // Submit on Ctrl+Enter / Cmd+Enter
   document.getElementById('promptInput').addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runInfer();
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') run();
   });
 
   loadProviders();

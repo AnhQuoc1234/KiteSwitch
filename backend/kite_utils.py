@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, AsyncGenerator
 import os
 import re
 
@@ -131,11 +131,9 @@ def score_providers(providers: list[Provider], task_type: str = "simple") -> lis
         return []
 
     if task_type == "simple":
-        # Pure cost — cheapest first; free providers always win
         return sorted(providers, key=lambda p: p.price_per_1k_tokens)
 
     if task_type == "code":
-        # Weighted: 60% quality, 40% inverse cost
         max_cost = max(p.price_per_1k_tokens for p in providers) or 1e-9
         def code_score(p: Provider) -> float:
             cost_norm = p.price_per_1k_tokens / max_cost
@@ -143,10 +141,8 @@ def score_providers(providers: list[Provider], task_type: str = "simple") -> lis
         return sorted(providers, key=code_score)
 
     if task_type == "complex":
-        # Quality-first; break ties by cost
         return sorted(providers, key=lambda p: (-p.quality_score, p.price_per_1k_tokens))
 
-    # Fallback: cheapest
     return sorted(providers, key=lambda p: p.price_per_1k_tokens)
 
 
@@ -163,7 +159,7 @@ def pay_provider(provider: Provider, amount_usd: float) -> dict:
 
 
 def invoke_provider(provider: Provider, prompt: str) -> tuple[str, int]:
-    """Call the provider's LLM and return (response_text, tokens_used)."""
+    """Synchronous LLM call. Returns (response_text, tokens_used)."""
     if provider.id in ("openai", "ollama"):
         from openai import OpenAI
         client = OpenAI(
@@ -188,3 +184,61 @@ def invoke_provider(provider: Provider, prompt: str) -> tuple[str, int]:
         return message.content[0].text, tokens
 
     raise ValueError(f"Unknown provider: {provider.id}")
+
+
+async def invoke_provider_async(provider: Provider, prompt: str) -> tuple[str, int]:
+    """Async LLM call. Returns (response_text, tokens_used)."""
+    if provider.id in ("openai", "ollama"):
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            api_key=provider.api_key or "ollama",
+            base_url=provider.base_url,
+        )
+        completion = await client.chat.completions.create(
+            model=provider.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return completion.choices[0].message.content, completion.usage.total_tokens
+
+    elif provider.id == "anthropic":
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+        message = await client.messages.create(
+            model=provider.model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        tokens = message.usage.input_tokens + message.usage.output_tokens
+        return message.content[0].text, tokens
+
+    raise ValueError(f"Unknown provider: {provider.id}")
+
+
+async def stream_provider(provider: Provider, prompt: str) -> AsyncGenerator[str, None]:
+    """Yield text chunks from the provider via streaming."""
+    if provider.id in ("openai", "ollama"):
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            api_key=provider.api_key or "ollama",
+            base_url=provider.base_url,
+        )
+        async with client.chat.completions.stream(
+            model=provider.model,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+
+    elif provider.id == "anthropic":
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+        async with client.messages.stream(
+            model=provider.model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+
+    else:
+        raise ValueError(f"Unknown provider: {provider.id}")
